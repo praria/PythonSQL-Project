@@ -1,74 +1,150 @@
-# Project: Python SQL API with File I/O
+# Python SQL Call Center Backend
 
-## Background 
+A small Python backend that models a call center: load user and call data from CSV files, store it in an in-memory SQLite database, run analytics with SQL, and export results back to CSV.
 
-There are two halves in a full-stack application: the front end, responsible for user interaction and display, and the backend, which handles data storage and processing. In this project, we'll work on the backend, creating an application to manage data in a hypothetical call center. Our application will handle data for users and calls, and it will use that data to provide analytics and data ordering functionality.
+## Overview
 
-The primary technologies you will leverage in this project are Python, SQL, and File I/O with .csv files. The project will be written in Python. Data will be loaded into an in-memory SQLite database from existing .csv files, and analytic data will be saved into new .csv files. 
+Full-stack applications split work between a **frontend** (what users see) and a **backend** (data storage and business logic). This project focuses on the backend.
 
-## Database Tables 
+You will:
 
-The following tables will be initialized in your project's built-in database upon startup.
+1. Read and clean data from CSV files
+2. Insert valid records into SQLite tables
+3. Query the database for analytics and sorted exports
+4. Write results to new CSV files
 
-### users
+**Technologies:** Python, SQLite, CSV file I/O
+
+## Project structure
+
 ```
-userId INTEGER PRIMARY KEY,
-firstName TEXT
-lastName TEXT
+├── resources/
+│   ├── users.csv              # Input: call center agents
+│   ├── callLogs.csv           # Input: call records
+│   ├── userAnalytics.csv      # Output: per-user call stats
+│   └── orderedCalls.csv       # Output: calls sorted by user and time
+├── src/
+│   ├── main/
+│   │   └── main.py            # Application entry point and core logic
+│   └── test/
+│       ├── lab_test.py        # Unit tests
+│       └── test*.csv          # Test fixtures
+└── README.md
 ```
 
-### callLogs
+## Database schema
+
+Tables are created in memory when the application starts (`sqlite3.connect(':memory:')`). Primary keys auto-increment when you insert rows without specifying an ID.
+
+### `users`
+
+| Column      | Type    | Notes                    |
+|-------------|---------|--------------------------|
+| `userId`    | INTEGER | Primary key, auto-increment |
+| `firstName` | TEXT    |                          |
+| `lastName`  | TEXT    |                          |
+
+### `callLogs`
+
+| Column        | Type    | Notes                              |
+|---------------|---------|------------------------------------|
+| `callId`      | INTEGER | Primary key, auto-increment        |
+| `phoneNumber` | TEXT    |                                    |
+| `startTime`   | INTEGER | Unix epoch (seconds)               |
+| `endTime`     | INTEGER | Unix epoch (seconds)               |
+| `direction`   | TEXT    | e.g. `inbound`, `outbound`         |
+| `userId`      | INTEGER | Foreign key → `users.userId`       |
+
+## Features
+
+### 1. Load and clean users (`load_and_clean_users`)
+
+- **Input:** `resources/users.csv` (columns: `firstName`, `lastName`)
+- **Action:** Insert rows into `users`, skipping invalid records
+- **Validation:** Each row must have exactly 2 fields, and neither field may be empty or whitespace-only
+
+### 2. Load and clean call logs (`load_and_clean_call_logs`)
+
+- **Input:** `resources/callLogs.csv` (columns: `phoneNumber`, `startTime`, `endTime`, `direction`, `userId`)
+- **Action:** Insert rows into `callLogs`, skipping invalid records
+- **Validation:** Each row must have exactly 5 non-empty fields; `startTime`, `endTime`, and `userId` must be valid integers
+
+### 3. User analytics (`write_user_analytics`)
+
+- **Output:** `resources/userAnalytics.csv`
+- **Content:** One row per user with calls in the database
+
+| Column        | Description                                      |
+|---------------|--------------------------------------------------|
+| `userId`      | User identifier                                  |
+| `avgDuration` | Average call length in seconds (`endTime - startTime`) |
+| `numCalls`    | Total number of calls                            |
+
+Example:
+
+```csv
+userId,avgDuration,numCalls
+1,105.0,4
 ```
-callId INTEGER PRIMARY KEY,
-phoneNumber TEXT,
-startTimeEpoch INTEGER,
-endTimeEpoch INTEGER,
-callDirection TEXT,
-userId INTEGER,
-FOREIGN KEY (userId) REFERENCES users(userId)
+
+### 4. Ordered call logs (`write_ordered_calls`)
+
+- **Output:** `resources/orderedCalls.csv`
+- **Content:** All call logs sorted by `userId`, then `startTime` (ascending)
+- **Columns:** `callId`, `phoneNumber`, `startTime`, `endTime`, `direction`, `userId`
+
+## Getting started
+
+### Prerequisites
+
+- Python 3.8 or newer
+
+### Run the application
+
+From the `src/main` directory (paths in `main()` are relative to that folder):
+
+```bash
+cd src/main
+python3 main.py
 ```
 
-Note - by specifying IDs as primary keys, the id value should auto-increment for each new record.
+This loads `resources/users.csv` and `resources/callLogs.csv`, then writes `userAnalytics.csv` and `orderedCalls.csv`.
 
-# Technical Requirements
+To inspect database contents after a run, uncomment `select_from_users_and_call_logs()` in `main()`.
 
-### SQLite
+### Run tests
 
-- The app will already be a Python project with SQLite tables created at runtime. 
-- You will be responsible for cleaning and inserting data into the database, as well as selecting and modifying that data for analysis.  
+From the project root:
 
-### CSV
+```bash
+# All tests
+python3 -m unittest src.test.lab_test -v
 
-- The callLogs.csv and users.csv files will be included in the resources folder for loading into the DB tables.
-- You will be responsible for loading the data from these existing files into the database, as well as writing analytic data to new files.
+# One test at a time
+python3 -m unittest src.test.lab_test.ProjectTests.test_users_table_has_clean_data -v
+python3 -m unittest src.test.lab_test.ProjectTests.test_calllogs_table_has_clean_data -v
+python3 -m unittest src.test.lab_test.ProjectTests.test_user_analytics_are_correct -v
+python3 -m unittest src.test.lab_test.ProjectTests.test_call_logs_are_ordered -v
+```
 
-# User Stories
+## Implementation notes
 
+- Each core function accepts a `file_path` argument so the same code works with `resources/` files in production and `src/test/` fixtures in tests.
+- Use parameterized SQL (`?` placeholders) when inserting or querying—do not build SQL strings from raw CSV values.
+- Call `conn.commit()` after inserts so data is visible to subsequent queries and tests.
+- SQL `ORDER BY` and aggregate functions (`AVG`, `COUNT`, `GROUP BY`) keep export logic simple and reliable.
 
-### Load user data into users table
-- Load the users.csv file found in /resources into the users table
-- Clean the data before insertion. In this project, you just have to leave out any records with missing values or too many values.
-- HINT: For every record in users.csv, make sure it has the correct number of fields and no empty values before inserting into the Database.
+## Data flow
 
-### Load call data into callLogs table
-- Load the callLogs.csv file found in /resources into the callLogs table 
-- Clean the data before insertion. In this project, you just have to leave out any records with missing values or too many values.
-- HINT: For every record in callLogs.csv, make sure it has the correct number of fields and no empty values before inserting into the Database.
-
-### Save user analytic data into userAnalytics.csv
-- Save analytic data for users into a csv file. The file must be named userAnalytics.csv, and it must be in the /resources folder
-- Records must include userId, avgDuration, numCalls. Example:
-  ```
-  userId,avgDuration,numCalls
-  1,105.0,4
-  ```
-- HINT: This data will be selected from the callLogs table.
-- HINT 2: Dictionaries will be very helpful for matching data with userIds. Consider one for {userId, average call duration} and one for {userId, number of calls}. 
-
-### Save ordered call logs into orderedCallLogs.csv
-- Save call logs into csv files, ordered by userId, then start time. The file must be named orderedCallLogs.csv
-- HINT: This data will be selected from the callLogs table.
-- HINT 2: You can make use of ORDER BY to greatly simplify your python logic
-
-*General note - each of these functions take a "file_path" parameter. You will not need to edit this variable, but it will be used to accomplish each implementation. See main() for an example of the function invocations with file paths from /resources.
-
+```
+users.csv ──────────► load_and_clean_users ──► users table
+                                                    │
+callLogs.csv ───────► load_and_clean_call_logs ──► callLogs table
+                                                    │
+                    ┌───────────────────────────────┤
+                    ▼                               ▼
+         write_user_analytics              write_ordered_calls
+                    │                               │
+                    ▼                               ▼
+         userAnalytics.csv                 orderedCalls.csv
+```
